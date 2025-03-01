@@ -12,6 +12,7 @@ RUN apt-get update && \
     python3 \
     python3-pip \
     python3-tk \
+    xvfb \
     websockify
 
 RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
