@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Create symlink from python3 to python
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
 # Install Node.js and clean up in same layer
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - \
     && apt-get update \
@@ -47,9 +50,14 @@ RUN pip3 install --no-cache-dir -r requirements.txt && \
 # Copy application code
 COPY . .
 
+# Create the expected directory structure for the simulation script
+RUN mkdir -p /app/gpu_simulation
+RUN cp /app/run_simulation.py /app/gpu_simulation/
+
 # Verify what was copied
 RUN echo "AFTER COPY:" && ls -la /app && \
-    echo "Looking for server.js:" && ls -la /app/server.js || echo "SERVER.JS NOT FOUND"
+    echo "Looking for server.js:" && ls -la /app/server.js || echo "SERVER.JS NOT FOUND" && \
+    echo "Checking gpu_simulation directory:" && ls -la /app/gpu_simulation
 
 # Create fallback server.js if not found
 RUN if [ ! -f /app/server.js ]; then \
@@ -74,7 +82,10 @@ RUN mkdir -p /app/public
 
 # Final verification
 RUN echo "FINAL CHECK:" && ls -la /app && \
-    echo "SERVER.JS CONTENT:" && cat /app/server.js | head -5
+    echo "SERVER.JS CONTENT:" && cat /app/server.js | head -5 && \
+    echo "Python version:" && python --version && \
+    echo "Python3 version:" && python3 --version && \
+    echo "GPU_SIMULATION DIR:" && ls -la /app/gpu_simulation
 
 # Expose port
 EXPOSE 3000
