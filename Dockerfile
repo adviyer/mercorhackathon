@@ -1,5 +1,5 @@
 # Dockerfile for WebGPU-Ocean on Northflank with H100 GPUs
-FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -46,6 +46,8 @@ RUN echo "GPU_SIMULATION DIR:" && ls -la /app/gpu_simulation
 
 # Expose port
 EXPOSE 3000
+
+RUN apt-get update && apt-get install -y --no-install-recommends nvidia-utils-525
 
 # Start the application
 CMD ["npm", "start"]
