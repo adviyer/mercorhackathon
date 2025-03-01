@@ -179,7 +179,7 @@ async def evaluate_performance(request: EvaluationRequest, background_tasks: Bac
     
     # Format the request for DeepSeek API
     chat_request = ChatCompletionRequest(
-        model="deepseek-r-1",
+        model="deepseek-r1:70b",
         messages=[
             Message(role="system", content="You are an expert GPU performance analyst specializing in fluid simulations on GPU. Provide detailed, accurate, and actionable performance analysis."),
             Message(role="user", content=prompt)
