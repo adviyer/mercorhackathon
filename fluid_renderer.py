@@ -1,26 +1,27 @@
 import numpy as np
 import moderngl
-import moderngl_window as mglw
-from moderngl_window.meta import WindowConfig
-from moderngl_window.scene import Material
-from moderngl_window.resources.meta import texture
-import time
 from pathlib import Path
+import time
 import os
 import cv2
 
 from fluid_physics import FluidSimulation
 
-class FluidRenderer(WindowConfig):
-    gl_version = (4, 3)
-    title = "3D Fluid Simulation"
-    resource_dir = Path(__file__).parent
-    aspect_ratio = 16 / 9
-    window_size = (1920, 1080)
-    samples = 4
+class FluidRenderer:
+    """Headless renderer for fluid simulation using ModernGL."""
     
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, 
+                 window_size=(1920, 1080),
+                 grid_size=(128, 128, 128),
+                 particles_count=1000,
+                 simulation_time=5.0,
+                 save_interval=3.0,
+                 output_video_path="fluid_simulation.mp4"):
+        
+        self.window_size = window_size
+        
+        # Initialize OpenGL context (headless)
+        self.ctx = moderngl.create_standalone_context(require=430)
         
         # Configure OpenGL
         self.ctx.enable(moderngl.DEPTH_TEST)
@@ -28,17 +29,24 @@ class FluidRenderer(WindowConfig):
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
         
+        # Create framebuffer for offscreen rendering
+        self.fbo = self.ctx.framebuffer(
+            color_attachments=[self.ctx.texture(window_size, 4)],
+            depth_attachment=self.ctx.depth_texture(window_size)
+        )
+        self.fbo.use()
+        
         # Set up video writer
         self.video_writer = None
-        self.output_video_path = "fluid_simulation.mp4"
+        self.output_video_path = output_video_path
         self.setup_video_writer()
         
         # Initialize the physics simulation
         self.simulation = FluidSimulation(
-            grid_size=(128, 128, 128),
-            particles_count=1000,
-            simulation_time=5.0,
-            save_interval=3.0
+            grid_size=grid_size,
+            particles_count=particles_count,
+            simulation_time=simulation_time,
+            save_interval=save_interval
         )
         
         # Run physics simulation
@@ -69,7 +77,23 @@ class FluidRenderer(WindowConfig):
         # Create grid and axes for reference
         self.create_grid()
         
+        # Create projection matrix
+        aspect_ratio = window_size[0] / window_size[1]
+        self.proj_matrix = self.perspective_matrix(60.0, aspect_ratio, 0.1, 100.0)
+        
         print("Renderer initialized, starting rendering...")
+    
+    def perspective_matrix(self, fov, aspect, near, far):
+        """Create a perspective projection matrix."""
+        f = 1.0 / np.tan(np.radians(fov) / 2.0)
+        nf = 1.0 / (near - far)
+        
+        return np.array([
+            [f / aspect, 0.0, 0.0, 0.0],
+            [0.0, f, 0.0, 0.0],
+            [0.0, 0.0, (far + near) * nf, -1.0],
+            [0.0, 0.0, 2.0 * far * near * nf, 0.0]
+        ], dtype='f4')
     
     def setup_video_writer(self):
         """Set up the video writer for saving frames."""
@@ -285,89 +309,89 @@ class FluidRenderer(WindowConfig):
             self.grid_ibo
         )
     
-    def render(self, time, frame_time):
-        """Render a frame."""
-        # Clear the framebuffer
-        self.ctx.clear(0.05, 0.05, 0.05, 1.0)
-        self.ctx.enable(moderngl.DEPTH_TEST)
+    def render(self):
+        """Render all frames of the simulation to video."""
+        print(f"Starting to render {self.frame_count} frames...")
         
-        # Check if we've finished rendering all frames
-        if self.current_frame >= self.frame_count:
-            # Close video writer and exit when done
-            if self.video_writer is not None:
-                self.video_writer.release()
-                print(f"Video saved to {self.output_video_path}")
-            self.wnd.close()
-            return
+        for frame in range(self.frame_count):
+            self.current_frame = frame
             
-        # Update density texture with current frame data
-        density_data = self.density_frames[self.current_frame]
-        self.density_texture.write(density_data.astype('f4').tobytes())
+            # Clear the framebuffer
+            self.fbo.clear(0.05, 0.05, 0.05, 1.0)
+            
+            # Update density texture with current frame data
+            density_data = self.density_frames[frame]
+            self.density_texture.write(density_data.astype('f4').tobytes())
+            
+            # Update particle positions
+            particles = self.particle_frames[frame]
+            self.particles_vbo.write(particles.astype('f4').tobytes())
+            
+            # Fixed camera position looking at the center of the simulation
+            eye_pos = np.array([1.5, 1.5, 1.5], dtype='f4')
+            target = np.array([0.0, 0.0, 0.0], dtype='f4')
+            up = np.array([0.0, 1.0, 0.0], dtype='f4')
+            
+            # Build view matrix manually for fixed camera position
+            z_axis = eye_pos - target
+            z_axis = z_axis / np.linalg.norm(z_axis)
+            
+            x_axis = np.cross(up, z_axis)
+            x_axis = x_axis / np.linalg.norm(x_axis)
+            
+            y_axis = np.cross(z_axis, x_axis)
+            
+            view = np.array([
+                [x_axis[0], y_axis[0], z_axis[0], 0.0],
+                [x_axis[1], y_axis[1], z_axis[1], 0.0],
+                [x_axis[2], y_axis[2], z_axis[2], 0.0],
+                [-np.dot(x_axis, eye_pos), -np.dot(y_axis, eye_pos), -np.dot(z_axis, eye_pos), 1.0]
+            ], dtype='f4')
+            
+            # Model matrix (identity for now)
+            model = np.eye(4, dtype='f4')
+            
+            # Render the volume
+            self.volume_program['m_proj'].write(self.proj_matrix.tobytes())
+            self.volume_program['m_view'].write(view.tobytes())
+            self.volume_program['m_model'].write(model.tobytes())
+            self.volume_program['grid_size'].write(np.array(self.grid_size, dtype='f4').tobytes())
+            self.volume_program['eye_position'].write(eye_pos.tobytes())
+            
+            # Bind the density texture
+            self.density_texture.use(0)
+            self.volume_program['volume_texture'] = 0
+            
+            # Draw the cube for volume rendering
+            self.grid_vao.render()
+            
+            # Draw particles
+            self.particle_program['m_proj'].write(self.proj_matrix.tobytes())
+            self.particle_program['m_view'].write(view.tobytes())
+            self.particle_program['point_size'] = 10.0  # Adjust size as needed
+            
+            # Enable point sprites and draw particles
+            self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
+            self.particles_vao.render(moderngl.POINTS)
+            
+            # Capture frame for video
+            self.capture_frame()
+            
+            # Print progress
+            if frame % 10 == 0:
+                print(f"Rendered frame {frame}/{self.frame_count}")
         
-        # Update particle positions
-        particles = self.particle_frames[self.current_frame]
-        self.particles_vbo.write(particles.astype('f4').tobytes())
-        
-        # Set up camera and view
-        proj = self.camera.projection.matrix
-        view = self.camera.matrix
-        
-        # Fixed camera position looking at the center of the simulation
-        eye_pos = np.array([1.5, 1.5, 1.5], dtype='f4')
-        target = np.array([0.0, 0.0, 0.0], dtype='f4')
-        up = np.array([0.0, 1.0, 0.0], dtype='f4')
-        
-        # Build view matrix manually for fixed camera position
-        z_axis = eye_pos - target
-        z_axis = z_axis / np.linalg.norm(z_axis)
-        
-        x_axis = np.cross(up, z_axis)
-        x_axis = x_axis / np.linalg.norm(x_axis)
-        
-        y_axis = np.cross(z_axis, x_axis)
-        
-        view = np.array([
-            [x_axis[0], y_axis[0], z_axis[0], 0.0],
-            [x_axis[1], y_axis[1], z_axis[1], 0.0],
-            [x_axis[2], y_axis[2], z_axis[2], 0.0],
-            [-np.dot(x_axis, eye_pos), -np.dot(y_axis, eye_pos), -np.dot(z_axis, eye_pos), 1.0]
-        ], dtype='f4')
-        
-        # Render the volume
-        self.volume_program['m_proj'].write(proj.astype('f4').tobytes())
-        self.volume_program['m_view'].write(view.astype('f4').tobytes())
-        self.volume_program['m_model'].write(np.eye(4, dtype='f4').tobytes())
-        self.volume_program['grid_size'].write(np.array(self.grid_size, dtype='f4').tobytes())
-        self.volume_program['eye_position'].write(eye_pos.tobytes())
-        
-        # Bind the density texture
-        self.density_texture.use(0)
-        self.volume_program['volume_texture'] = 0
-        
-        # Draw the cube for volume rendering (wireframe)
-        self.ctx.wireframe = True
-        self.grid_vao.render()
-        self.ctx.wireframe = False
-        
-        # Draw particles
-        self.particle_program['m_proj'].write(proj.astype('f4').tobytes())
-        self.particle_program['m_view'].write(view.astype('f4').tobytes())
-        self.particle_program['point_size'] = 10.0  # Adjust size as needed
-        
-        # Enable point sprites and draw particles
-        self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
-        self.particles_vao.render(moderngl.POINTS)
-        
-        # Capture frame for video
-        self.capture_frame()
-        
-        # Move to next frame
-        self.current_frame += 1
+        # Close video writer
+        if self.video_writer is not None:
+            self.video_writer.release()
+            print(f"Video saved to {self.output_video_path}")
+            
+        print("Rendering completed!")
         
     def capture_frame(self):
         """Capture the current frame for video output."""
         # Read pixels from framebuffer
-        pixels = self.ctx.fbo.read(components=4, attachment=0)
+        pixels = self.fbo.read(components=4, attachment=0)
         img = np.frombuffer(pixels, dtype=np.uint8).reshape(self.window_size[1], self.window_size[0], 4)
         
         # Convert RGBA to BGR for OpenCV
@@ -383,6 +407,24 @@ class FluidRenderer(WindowConfig):
         # Save individual frame if desired
         # cv2.imwrite(f"frames/frame_{self.current_frame:04d}.png", img)
 
+def run_fluid_renderer(grid_size=(128, 128, 128), particles_count=1000, 
+                      simulation_time=5.0, save_interval=3.0,
+                      output_video_path="fluid_simulation.mp4"):
+    """Run the headless fluid renderer."""
+    renderer = FluidRenderer(
+        window_size=(1920, 1080),
+        grid_size=grid_size,
+        particles_count=particles_count,
+        simulation_time=simulation_time,
+        save_interval=save_interval,
+        output_video_path=output_video_path
+    )
+    
+    # Render all frames
+    renderer.render()
+    
+    return output_video_path
+        
 if __name__ == "__main__":
-    # Run the application
-    mglw.run_window_config(FluidRenderer)
+    # Direct test run
+    run_fluid_renderer()

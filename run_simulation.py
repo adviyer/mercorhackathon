@@ -18,11 +18,45 @@ def setup_environment():
     """Set up the environment for GPU simulation on Northflank."""
     print("Setting up environment for GPU acceleration...")
     
-    # Install dependencies
-    subprocess.check_call([
-        "pip", "install", "taichi", "numpy", "opencv-python", "moderngl", 
-        "moderngl-window", "pillow", "PyOpenGL", "PyOpenGL-accelerate"
-    ])
+    # Check if Taichi is already installed
+    try:
+        import taichi as ti
+        print(f"Taichi version: {ti.__version__}")
+    except ImportError:
+        print("Installing Taichi...")
+        subprocess.check_call([
+            "pip", "install", "--no-cache-dir", "taichi"
+        ])
+    
+    # Check OpenGL/ModernGL
+    try:
+        import moderngl
+        print(f"ModernGL version: {moderngl.__version__}")
+    except ImportError:
+        print("Installing ModernGL...")
+        subprocess.check_call([
+            "pip", "install", "--no-cache-dir", "moderngl"
+        ])
+    
+    # Check OpenCV
+    try:
+        import cv2
+        print(f"OpenCV version: {cv2.__version__}")
+    except ImportError:
+        print("Installing OpenCV...")
+        subprocess.check_call([
+            "pip", "install", "--no-cache-dir", "opencv-python-headless"
+        ])
+        
+    # Check NumPy
+    try:
+        import numpy as np
+        print(f"NumPy version: {np.__version__}")
+    except ImportError:
+        print("Installing NumPy...")
+        subprocess.check_call([
+            "pip", "install", "--no-cache-dir", "numpy"
+        ])
     
     # Check GPU availability
     try:
@@ -46,8 +80,7 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
                   save_interval=3.0, output_file="fluid_simulation.mp4"):
     """Run the full fluid simulation and rendering pipeline."""
     from fluid_physics import FluidSimulation
-    from fluid_renderer import FluidRenderer
-    import moderngl_window as mglw
+    from fluid_renderer import run_fluid_renderer
     
     print(f"Starting 3D fluid simulation with:")
     print(f"  - Grid size: {grid_size}")
@@ -55,32 +88,16 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
     print(f"  - Duration: {duration} seconds")
     print(f"  - Output: {output_file}")
     
-    # Create a custom config for the renderer
-    config = {
-        "class": FluidRenderer,
-        "window": {
-            "size": (1920, 1080),
-            "title": "3D Fluid Simulation",
-            "vsync": True,
-            "resizable": False,
-            "fullscreen": False,
-            "cursor": True,
-        },
-        "headless": True,  # Important for Northflank environment
-        "gl_version": (4, 3),
-        "simulation_params": {
-            "grid_size": grid_size,
-            "particles_count": particles,
-            "simulation_time": duration,
-            "save_interval": save_interval,
-            "output_video_path": output_file
-        }
-    }
+    # Run the fluid renderer
+    output_path = run_fluid_renderer(
+        grid_size=grid_size,
+        particles_count=particles,
+        simulation_time=duration,
+        save_interval=save_interval,
+        output_video_path=output_file
+    )
     
-    # Run the moderngl window application
-    mglw.run_window_config(FluidRenderer, **config)
-    
-    print(f"Simulation completed. Output video saved to: {output_file}")
+    print(f"Simulation completed. Output video saved to: {output_path}")
     print(f"Particle position data saved to: simulation_data/")
 
 def parse_args():

@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxinerama-dev \
     libxcursor-dev \
     libxi-dev \
+    libegl1 \
     xvfb \
     ffmpeg \
     wget \
@@ -28,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Upgrade pip and install Python dependencies
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip3 install --no-cache-dir numpy taichi pillow PyOpenGL PyOpenGL-accelerate moderngl moderngl-window opencv-python
+RUN pip3 install --no-cache-dir numpy taichi opencv-python-headless moderngl
 
 # Set up working directory
 WORKDIR /app
