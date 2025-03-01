@@ -115,10 +115,66 @@ async def run_performance_test(code: str, optimization_id: str, iteration: int) 
     run_dir = os.path.join(SIMULATION_DIR, f"run_{optimization_id}_{iteration}")
     os.makedirs(run_dir, exist_ok=True)
     
-    # Write the code to a file
+    # Write the code to a file with a main function wrapper
     code_path = os.path.join(run_dir, "fluid_sim.cu")
     with open(code_path, "w") as f:
+        # Write preamble includes
+        f.write("#include <stdio.h>\n")
+        f.write("#include <cuda_runtime.h>\n")
+        f.write("#include <string.h>\n")  # Added for strcmp
+        f.write("#include <stdlib.h>\n\n")  # Added for atoi
+        
+        # Write the original kernel code
         f.write(code)
+        
+        # Add a main function if one doesn't exist
+        if "int main" not in code:
+            f.write("\n\nint main(int argc, char** argv) {\n")
+            f.write("    // Default benchmark parameters\n")
+            f.write("    int size = 1024 * 1024;\n")
+            f.write("    float *h_data, *d_data;\n")
+            f.write("    cudaEvent_t start, stop;\n")
+            f.write("    float milliseconds = 0;\n\n")
+            
+            f.write("    // Parse command line arguments\n")
+            f.write("    int frames = 300;\n")
+            f.write("    for(int i = 1; i < argc; i++) {\n")
+            f.write("        if(strcmp(argv[i], \"--frames\") == 0 && i+1 < argc) {\n")
+            f.write("            frames = atoi(argv[i+1]);\n")
+            f.write("        }\n")
+            f.write("    }\n\n")
+            
+            f.write("    // Allocate memory\n")
+            f.write("    h_data = (float*)malloc(size * sizeof(float));\n")
+            f.write("    cudaMalloc(&d_data, size * sizeof(float));\n\n")
+            
+            f.write("    // Initialize data\n")
+            f.write("    for(int i = 0; i < size; i++) h_data[i] = 1.0f;\n")
+            f.write("    cudaMemcpy(d_data, h_data, size * sizeof(float), cudaMemcpyHostToDevice);\n\n")
+            
+            f.write("    // Create events for timing\n")
+            f.write("    cudaEventCreate(&start);\n")
+            f.write("    cudaEventCreate(&stop);\n\n")
+            
+            f.write("    // Run kernel multiple times to measure performance\n")
+            f.write("    cudaEventRecord(start);\n")
+            f.write("    for(int frame = 0; frame < frames; frame++) {\n")
+            f.write("        simple_kernel<<<(size+255)/256, 256>>>(d_data, size);\n")
+            f.write("    }\n")
+            f.write("    cudaEventRecord(stop);\n")
+            f.write("    cudaEventSynchronize(stop);\n\n")
+            
+            f.write("    // Calculate and print performance metrics\n")
+            f.write("    cudaEventElapsedTime(&milliseconds, start, stop);\n")
+            f.write("    float fps = frames / (milliseconds / 1000.0f);\n")
+            f.write("    printf(\"FPS: %f\\n\", fps);\n")
+            f.write("    printf(\"Frame time: %f ms\\n\", milliseconds / frames);\n\n")
+            
+            f.write("    // Cleanup\n")
+            f.write("    cudaFree(d_data);\n")
+            f.write("    free(h_data);\n")
+            f.write("    return 0;\n")
+            f.write("}\n")
     
     # Compile the code
     logger.info(f"Compiling code for optimization {optimization_id}, iteration {iteration}")
@@ -199,7 +255,7 @@ async def run_performance_test(code: str, optimization_id: str, iteration: int) 
         executable_path = os.path.join(run_dir, "fluid_sim")
         if os.path.exists(executable_path):
             os.remove(executable_path)
-
+            
 def extract_performance_data(output: str, run_dir: str) -> Dict[str, Any]:
     """Extract performance data from simulation output and CUDA profiler."""
     # This is a stub function - in a real implementation, you would parse the simulation output
