@@ -1,51 +1,26 @@
-# Dockerfile for WebGPU-Ocean on Northflank with H100 GPUs
+FROM python:3.9-slim
 
-# Start with NVIDIA CUDA runtime image instead of devel (smaller)
-FROM nvidia/cuda:12.0.1-runtime-ubuntu22.04
-
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV NODE_VERSION=18.x
-ENV PYTHONUNBUFFERED=1
-
-# Install system dependencies - consolidate and clean in one step
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-minimal \
-    python3-pip \
-    python3-dev \
-    git \
-    curl \
-    wget \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js and clean up in same layer
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && npm install -g npm \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create app directory
 WORKDIR /app
 
-# Copy only package files first (better layer caching)
-COPY package*.json ./
-RUN npm install --production && npm cache clean --force
+# Create directories for logs and data
+RUN mkdir -p /app/logs /app/data
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt && \
-    rm -rf ~/.cache/pip
+# Create requirements.txt file
+RUN echo "fastapi>=0.95.0\nuvicorn>=0.21.0\nhttpx>=0.24.0\npydantic>=1.10.7" > /app/requirements.txt
+
+# Install required dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY evaluator_service.py /app/
 
-# Expose port
+# Expose the service port (3000 for Northflank)
 EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Set environment variables (these can be overridden at runtime)
+ENV DEEPSEEK_API_URL="https://p01--deepseek-ollama--8bsw8fx29k5g.code.run:11434/v1/chat/completions"
+ENV MAX_RETRIES=3
+ENV TIMEOUT_SECONDS=180
+
+# Run the service
+CMD ["uvicorn", "evaluator_service:app", "--host", "0.0.0.0", "--port", "3000"]
