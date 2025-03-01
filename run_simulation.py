@@ -164,7 +164,7 @@ if __name__ == "__main__":
     print("Simulation completed. Container will remain running.")
     print("You can now copy the files using:")
     print(f"  - Frame images: /app/{args.output_dir}/")
-    print("  - Particle data: /app/simulation_data/")
+    print(f"  - Particle data: /app/simulation_data/")
     print("=" * 80)
     print("\n")
     

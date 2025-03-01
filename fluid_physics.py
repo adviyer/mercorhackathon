@@ -120,7 +120,7 @@ if 'ti' in globals():
             
             if self.using_taichi:
                 @ti.kernel
-                def initialize_density():
+                def initialize_density(self):
                     for i, j, k in self.density:
                         # Distance from center
                         di = i - center[0]
@@ -135,7 +135,7 @@ if 'ti' in globals():
                             # Add some initial velocity (upward motion)
                             self.velocity[i, j, k] = ti.Vector([0.0, 2.0, 0.0])
                 
-                initialize_density()
+                initialize_density(self)
             else:
                 # NumPy implementation
                 for i in range(self.grid_size[0]):
@@ -295,8 +295,7 @@ if 'ti' in globals():
                 'domain_size': self.domain_size
             }
 
-    # All Taichi kernel methods defined here
-    if 'ti' in globals():
+        # All Taichi kernel methods defined here with proper type annotations
         @ti.kernel
         def diffuse(self, field: ti.template(), field_next: ti.template(), diffusion_rate: ti.f32):
             for i, j, k in field:
@@ -448,6 +447,20 @@ if 'ti' in globals():
                 elif self.particles[i].z > 1.0:
                     self.particles[i].z = 1.0
                     self.particle_velocities[i].z *= -0.5
+else:
+    # Plain class if taichi is not available
+    class FluidSimulation:
+        def __init__(self, 
+                    grid_size=(128, 128, 128),
+                    domain_size=(1.0, 1.0, 1.0),
+                    viscosity=0.0001,
+                    iterations=20,
+                    dt=0.033,
+                    particles_count=1000,
+                    save_interval=3.0,
+                    simulation_time=5.0):
+            # Implementation for when Taichi is not available...
+            pass
 
 if __name__ == "__main__":
     # This allows the physics to be run independently for testing
