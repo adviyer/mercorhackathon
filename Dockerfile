@@ -19,12 +19,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     git \
     unzip \
+    cuda-toolkit-12-3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install Python dependencies
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip3 install --no-cache-dir numpy taichi opencv-python-headless
+RUN pip3 install --no-cache-dir numpy "taichi<1.7.0" opencv-python-headless
 
 # Set up working directory
 WORKDIR /app

@@ -4,7 +4,7 @@ Based on WebGPU-Ocean, adapted for headless rendering to video
 
 This script orchestrates:
 1. Running the physics simulation
-2. Rendering the simulation to a video file
+2. Rendering frames to a directory
 3. Proper setup for Northflank environment with H100 GPUs
 """
 
@@ -79,7 +79,7 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
     print(f"  - Duration: {duration} seconds")
     print(f"  - Output directory: {output_dir}")
     
-    # Use the simple frame renderer (no display or OpenGL required)
+    # Use the frame renderer (no display or OpenGL required)
     try:
         from frames_renderer import run_frames_renderer
         output_path = run_frames_renderer(
@@ -89,6 +89,15 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
             save_interval=save_interval,
             output_dir=output_dir
         )
+        
+        # Verify that files were created
+        import glob
+        frames = glob.glob(os.path.join(output_dir, "*.png"))
+        print(f"Created {len(frames)} frame images")
+        
+        particle_files = glob.glob(os.path.join("simulation_data", "*.pkl"))
+        print(f"Created {len(particle_files)} particle data files")
+        
     except Exception as e:
         print(f"Frame renderer failed: {e}")
         print(f"Exception details:\n{traceback.format_exc()}")
@@ -148,3 +157,22 @@ if __name__ == "__main__":
         except Exception as e2:
             print(f"Second attempt also failed: {e2}")
             print("Please check the logs for details.")
+    
+    # Keep the container running after simulation is complete
+    print("\n")
+    print("=" * 80)
+    print("Simulation completed. Container will remain running.")
+    print("You can now copy the files using:")
+    print(f"  - Frame images: /app/{args.output_dir}/")
+    print("  - Particle data: /app/simulation_data/")
+    print("=" * 80)
+    print("\n")
+    
+    # Keep the process running indefinitely
+    import time
+    try:
+        while True:
+            time.sleep(3600)  # Sleep for an hour at a time
+            print("Container still running... You can copy the files.")
+    except KeyboardInterrupt:
+        print("Container terminating.")
