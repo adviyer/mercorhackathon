@@ -46,6 +46,10 @@ class OceanSimulator:
         self.k_x = x.repeat(self.height, 1)
         self.k_z = z.view(-1, 1).repeat(1, self.width)
         
+        # Calculate k_mag and store as instance variable
+        self.k_mag = torch.sqrt(self.k_x**2 + self.k_z**2)
+        self.k_mag[self.k_mag < 1e-7] = 1e-7
+        
         # Compute wave spectrum
         self.compute_phillips_spectrum()
         
@@ -56,23 +60,19 @@ class OceanSimulator:
         wind_x /= wind_norm
         wind_z /= wind_norm
         
-        # Avoid division by zero
-        k_mag = torch.sqrt(self.k_x**2 + self.k_z**2)
-        k_mag[k_mag < 1e-7] = 1e-7
-        
         # Compute wind alignment term
         wind_alignment = self.k_x * wind_x + self.k_z * wind_z
-        wind_alignment = wind_alignment / k_mag
+        wind_alignment = wind_alignment / self.k_mag
         
         # Phillips spectrum
         L = self.wind_speed**2 / 9.81  # Largest wave from wind speed
-        phillips = torch.zeros_like(k_mag)
+        phillips = torch.zeros_like(self.k_mag)
         
         # Main spectrum calculation
-        mask = (torch.abs(wind_alignment) > 0.01) & (k_mag > 0)
+        mask = (torch.abs(wind_alignment) > 0.01) & (self.k_mag > 0)
         phillips[mask] = (
-            0.0081 * torch.exp(-1.0 / (k_mag[mask] * L)**2) / 
-            k_mag[mask]**4 * 
+            0.0081 * torch.exp(-1.0 / (self.k_mag[mask] * L)**2) / 
+            self.k_mag[mask]**4 * 
             wind_alignment[mask]**2
         )
         
@@ -83,7 +83,7 @@ class OceanSimulator:
         
     def simulate_step(self, t):
         # Time-dependent phase
-        omega = torch.sqrt(9.81 * k_mag)
+        omega = torch.sqrt(9.81 * self.k_mag)
         phase = omega * t
         
         # Generate height field at time t
