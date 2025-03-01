@@ -90,14 +90,19 @@ class OceanSimulator:
         h_tilde = self.h0 * torch.exp(torch.complex(torch.zeros_like(phase), phase))
         h_tilde_conj = torch.conj(torch.flip(torch.flip(h_tilde, [0]), [1]))
         
-        # Ensure symmetry for real output
-        h_tilde_conj[0, 0] = torch.complex(torch.tensor(0.0, device=device), torch.tensor(0.0, device=device))
+        # Ensure symmetry for real output — FIX HERE:
+        # Replacing the old line:
+        #     h_tilde_conj[0, 0] = torch.complex(0.0, 0.0)
+        # with a valid zero assignment:
+        h_tilde_conj[0, 0] = 0
         
         ht = torch.fft.ifft2(h_tilde + h_tilde_conj).real * self.wave_scale
         
         # Compute displacement
-        kx_ht = torch.fft.ifft2(torch.complex(torch.zeros_like(self.k_x), torch.ones_like(self.k_x)) * self.k_x * h_tilde).real
-        kz_ht = torch.fft.ifft2(torch.complex(torch.zeros_like(self.k_z), torch.ones_like(self.k_z)) * self.k_z * h_tilde).real
+        kx_ht = torch.fft.ifft2(torch.complex(torch.zeros_like(self.k_x),
+                                              torch.ones_like(self.k_x)) * self.k_x * h_tilde).real
+        kz_ht = torch.fft.ifft2(torch.complex(torch.zeros_like(self.k_z),
+                                              torch.ones_like(self.k_z)) * self.k_z * h_tilde).real
         
         # Apply choppiness
         dx = kx_ht * self.choppiness
