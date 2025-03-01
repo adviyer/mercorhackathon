@@ -4,9 +4,18 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-    apt-get install -y tzdata && \
-    ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
-    dpkg-reconfigure --frontend noninteractive tzdata
+    apt-get install -y \
+    tzdata \
+    git \
+    x11vnc \
+    fluxbox \
+    python3 \
+    python3-pip \
+    websockify
+
+# Set timezone
+ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
+dpkg-reconfigure --frontend noninteractive tzdata
 
 # Clone noVNC to serve in browser
 RUN git clone https://github.com/novnc/noVNC.git /opt/novnc
