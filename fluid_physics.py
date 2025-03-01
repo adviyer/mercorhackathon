@@ -120,7 +120,7 @@ if 'ti' in globals():
             
             if self.using_taichi:
                 @ti.kernel
-                def initialize_density(self):
+                def initialize_density(self: ti.template()):
                     for i, j, k in self.density:
                         # Distance from center
                         di = i - center[0]
