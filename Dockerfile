@@ -1,38 +1,41 @@
-FROM ubuntu:22.04
+FROM ubuntu:20.04
 
-# Install necessary packages
+# Avoid interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
-    apt-get install -y \
-    tzdata \
-    git \
-    x11vnc \
-    fluxbox \
+# Install dependencies
+RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    python3-tk \
     xvfb \
-    websockify
+    x11vnc \
+    novnc \
+    wget \
+    unzip \
+    net-tools \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
-    dpkg-reconfigure --frontend noninteractive tzdata
+# Install Python dependencies
+RUN pip3 install pygame
 
-# Clone noVNC to serve in browser
-RUN git clone https://github.com/novnc/noVNC.git /opt/novnc
+# Create app directory
+WORKDIR /app
 
-# Set a VNC password
-RUN mkdir -p /root/.vnc && \
-    x11vnc -storepasswd "vncpassword" /root/.vnc/passwd
+# Copy the Python application
+COPY bouncing_ball.py /app/
 
-# Add the bouncing ball script to the container
-COPY bouncing_ball.py /opt/bouncing_ball.py
+# Create startup script
+RUN echo '#!/bin/bash \n\
+Xvfb :1 -screen 0 1024x768x16 & \n\
+export DISPLAY=:1 \n\
+x11vnc -display :1 -forever -nopw -quiet & \n\
+/usr/share/novnc/utils/launch.sh --vnc localhost:5900 --listen 80 & \n\
+sleep 2 \n\
+python3 /app/bouncing_ball.py \n\
+' > /app/start.sh && chmod +x /app/start.sh
 
-# Start everything: Xvfb, fluxbox, VNC server, noVNC, and bouncing ball app
-CMD Xvfb :99 -screen 0 1920x1080x24 & \
-    sleep 2 && \
-    fluxbox & \
-    sleep 2 && \
-    x11vnc -display :99 -rfbport 5900 -usepw -forever & \
-    /usr/bin/python3 -m websockify --web /opt/novnc 6080 localhost:5900 & \
-    sleep 2 && DISPLAY=:99 python3 /opt/bouncing_ball.py
+# Expose only HTTP port
+EXPOSE 80
+
+# Run the application
+CMD ["/app/start.sh"]
