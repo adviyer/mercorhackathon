@@ -180,13 +180,13 @@ def main():
             'choppiness': 1.5,
             'windDirection': [1.0, 1.0],
             'windSpeed': 8.0,
-            'frames': 10,
+            'frames': 1000,
             'fps': 30
         }
 
     width = params.get('width', 512)
     height = params.get('height', 512)
-    frames = params.get('frames', 10)
+    frames = params.get('frames', 1000)
     fps = params.get('fps', 30)
     
     # Initialize simulator
