@@ -1,1 +1,0 @@
-# mercor_hackathon
