@@ -1,3 +1,5 @@
+# Dockerfile for WebGPU-Ocean on Northflank with H100 GPUs
+
 # Start with NVIDIA CUDA runtime image instead of devel (smaller)
 FROM nvidia/cuda:12.0.1-runtime-ubuntu22.04
 
@@ -30,9 +32,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - \
 # Create app directory
 WORKDIR /app
 
-# For debugging - Let's see what's in the build context
-RUN echo "Listing build context files:" && ls -la
-
 # Copy only package files first (better layer caching)
 COPY package*.json ./
 RUN npm install --production && npm cache clean --force
@@ -42,12 +41,8 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt && \
     rm -rf ~/.cache/pip
 
-# Copy application code - explicitly copy the server.js file
-COPY server.js /app/server.js
+# Copy application code
 COPY . .
-
-# For debugging - Let's verify server.js exists
-RUN ls -la /app && echo "Content of server.js:" && cat /app/server.js | head -5
 
 # Expose port
 EXPOSE 3000
