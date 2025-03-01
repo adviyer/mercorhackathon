@@ -13,9 +13,8 @@ RUN apt-get update && \
     python3-pip \
     websockify
 
-# Set timezone
-ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
-dpkg-reconfigure --frontend noninteractive tzdata
+RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
+    dpkg-reconfigure --frontend noninteractive tzdata
 
 # Clone noVNC to serve in browser
 RUN git clone https://github.com/novnc/noVNC.git /opt/novnc
