@@ -3,13 +3,13 @@ FROM nvidia/cuda:12.0.1-runtime-ubuntu22.04
 # Set up working directory
 WORKDIR /app
 
-# Install Python and required packages
+# Install Python and required packages without nvcc
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-dev \
     build-essential \
-    nvcc \
+    nvidia-cuda-toolkit \
     git \
     curl \
     wget \
