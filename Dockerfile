@@ -1,9 +1,12 @@
 FROM ubuntu:22.04
 
 # Install necessary packages
-RUN apt-get update && apt-get install -y \
-    x11vnc xvfb fluxbox git python3 python3-websockify python3-pip python3-tk x11-apps && \
-    apt-get clean
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y tzdata && \
+    ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
+    dpkg-reconfigure --frontend noninteractive tzdata
 
 # Clone noVNC to serve in browser
 RUN git clone https://github.com/novnc/noVNC.git /opt/novnc
