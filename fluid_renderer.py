@@ -1,45 +1,27 @@
-import numpy as np
-import moderngl
-from pathlib import Path
-import time
-import os
-import cv2
+"""
+Simple frame-by-frame renderer for the fluid simulation.
+Does not require any display or OpenGL, only saves individual frames to disk.
+"""
 
+import numpy as np
+import cv2
+import os
+import pickle
 from fluid_physics import FluidSimulation
 
-class FluidRenderer:
-    """Headless renderer for fluid simulation using ModernGL."""
+class FramesRenderer:
+    """Renders simulation data as individual frames, with no display requirements."""
     
     def __init__(self, 
-                 window_size=(1920, 1080),
+                 output_dir="frames",
                  grid_size=(128, 128, 128),
                  particles_count=1000,
                  simulation_time=5.0,
                  save_interval=3.0,
-                 output_video_path="fluid_simulation.mp4"):
+                 frame_size=(1920, 1080)):
         
-        self.window_size = window_size
-        
-        # Initialize OpenGL context (headless)
-        self.ctx = moderngl.create_standalone_context(require=430)
-        
-        # Configure OpenGL
-        self.ctx.enable(moderngl.DEPTH_TEST)
-        self.ctx.enable(moderngl.CULL_FACE)
-        self.ctx.enable(moderngl.BLEND)
-        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-        
-        # Create framebuffer for offscreen rendering
-        self.fbo = self.ctx.framebuffer(
-            color_attachments=[self.ctx.texture(window_size, 4)],
-            depth_attachment=self.ctx.depth_texture(window_size)
-        )
-        self.fbo.use()
-        
-        # Set up video writer
-        self.video_writer = None
-        self.output_video_path = output_video_path
-        self.setup_video_writer()
+        self.output_dir = output_dir
+        self.frame_size = frame_size
         
         # Initialize the physics simulation
         self.simulation = FluidSimulation(
@@ -49,382 +31,163 @@ class FluidRenderer:
             save_interval=save_interval
         )
         
-        # Run physics simulation
+        # Make sure output directory exists
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        print(f"Frame renderer initialized. Output directory: {self.output_dir}")
+    
+    def run_simulation_and_render(self):
+        """Run the physics simulation and render frames to the output directory."""
         print("Running physics simulation...")
+        
+        # Run the simulation
         simulation_results = self.simulation.run_simulation()
-        self.density_frames = simulation_results['density_frames']
-        self.particle_frames = simulation_results['particle_frames']
-        self.grid_size = simulation_results['grid_size']
-        self.dt = simulation_results['dt']
-        self.frame_count = len(self.density_frames)
+        density_frames = simulation_results['density_frames']
+        particle_frames = simulation_results['particle_frames']
+        grid_size = simulation_results['grid_size']
+        frame_count = len(density_frames)
         
-        print(f"Simulation complete. Rendering {self.frame_count} frames...")
+        print(f"Simulation complete. Rendering {frame_count} frames...")
         
-        # Keep track of frames
-        self.current_frame = 0
-        
-        # Create shaders and programs
-        self.create_programs()
-        
-        # Create volumetric data texture
-        self.density_texture = self.ctx.texture3d(
-            self.grid_size, 1, dtype='f4'
-        )
-        
-        # Set up the particle rendering
-        self.setup_particles()
-        
-        # Create grid and axes for reference
-        self.create_grid()
-        
-        # Create projection matrix
-        aspect_ratio = window_size[0] / window_size[1]
-        self.proj_matrix = self.perspective_matrix(60.0, aspect_ratio, 0.1, 100.0)
-        
-        print("Renderer initialized, starting rendering...")
-    
-    def perspective_matrix(self, fov, aspect, near, far):
-        """Create a perspective projection matrix."""
-        f = 1.0 / np.tan(np.radians(fov) / 2.0)
-        nf = 1.0 / (near - far)
-        
-        return np.array([
-            [f / aspect, 0.0, 0.0, 0.0],
-            [0.0, f, 0.0, 0.0],
-            [0.0, 0.0, (far + near) * nf, -1.0],
-            [0.0, 0.0, 2.0 * far * near * nf, 0.0]
-        ], dtype='f4')
-    
-    def setup_video_writer(self):
-        """Set up the video writer for saving frames."""
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.video_writer = cv2.VideoWriter(
-            self.output_video_path,
-            fourcc,
-            30,  # FPS
-            self.window_size
-        )
-        
-        # Create directory for individual frames if needed
-        os.makedirs("frames", exist_ok=True)
-    
-    def create_programs(self):
-        """Create the shader programs."""
-        # Shader for volumetric rendering
-        self.volume_program = self.ctx.program(
-            vertex_shader='''
-                #version 430
-                
-                in vec3 in_position;
-                in vec3 in_normal;
-                in vec2 in_texcoord_0;
-                
-                uniform mat4 m_proj;
-                uniform mat4 m_view;
-                uniform mat4 m_model;
-                
-                out vec3 position;
-                out vec3 normal;
-                out vec2 uv;
-                
-                void main() {
-                    vec4 p = m_model * vec4(in_position, 1.0);
-                    gl_Position = m_proj * m_view * p;
-                    
-                    position = p.xyz;
-                    normal = mat3(m_model) * in_normal;
-                    uv = in_texcoord_0;
-                }
-            ''',
-            fragment_shader='''
-                #version 430
-                
-                in vec3 position;
-                in vec3 normal;
-                in vec2 uv;
-                
-                uniform sampler3D volume_texture;
-                uniform vec3 grid_size;
-                uniform vec3 eye_position;
-                
-                out vec4 fragColor;
-                
-                void main() {
-                    // Ray direction (from camera to fragment)
-                    vec3 ray_dir = normalize(position - eye_position);
-                    
-                    // Starting point is the position on the cube
-                    vec3 ray_pos = position;
-                    
-                    // Transform to normalized volume coordinates [0,1]
-                    vec3 inv_size = 1.0 / grid_size;
-                    ray_pos = (ray_pos + 0.5) * inv_size;
-                    
-                    // Ray marching parameters
-                    const int MAX_STEPS = 128;
-                    const float STEP_SIZE = 0.01;
-                    
-                    // Accumulated color and opacity
-                    vec4 color = vec4(0.0);
-                    
-                    // Ray march through the volume
-                    for (int i = 0; i < MAX_STEPS; i++) {
-                        // Current position in volume (normalized)
-                        vec3 pos = ray_pos + ray_dir * STEP_SIZE * float(i);
-                        
-                        // Check if we're outside the volume
-                        if (pos.x < 0.0 || pos.x > 1.0 || 
-                            pos.y < 0.0 || pos.y > 1.0 || 
-                            pos.z < 0.0 || pos.z > 1.0) {
-                            break;
-                        }
-                        
-                        // Sample the volume
-                        float density = texture(volume_texture, pos).r;
-                        
-                        // Skip empty space
-                        if (density < 0.01) continue;
-                        
-                        // Color based on density and position
-                        vec3 col = mix(vec3(0.1, 0.2, 0.8), vec3(0.8, 0.9, 1.0), density);
-                        
-                        // Accumulate color and opacity
-                        float alpha = density * 0.1; // Adjust for better visibility
-                        color.rgb += (1.0 - color.a) * col * alpha;
-                        color.a += (1.0 - color.a) * alpha;
-                        
-                        // Early exit if we've accumulated enough
-                        if (color.a > 0.95) break;
-                    }
-                    
-                    // Output color with proper alpha blending
-                    fragColor = color;
-                }
-            '''
-        )
-        
-        # Shader for particle rendering
-        self.particle_program = self.ctx.program(
-            vertex_shader='''
-                #version 430
-                
-                in vec3 in_position;
-                
-                uniform mat4 m_proj;
-                uniform mat4 m_view;
-                uniform float point_size;
-                
-                void main() {
-                    gl_Position = m_proj * m_view * vec4(in_position, 1.0);
-                    gl_PointSize = point_size;
-                }
-            ''',
-            fragment_shader='''
-                #version 430
-                
-                out vec4 fragColor;
-                
-                void main() {
-                    // Create circular point
-                    vec2 coord = gl_PointCoord - vec2(0.5);
-                    if (length(coord) > 0.5) {
-                        discard;
-                    }
-                    
-                    // Add some lighting effect
-                    float dist = length(coord);
-                    float intensity = 1.0 - dist * 2.0;
-                    
-                    fragColor = vec4(1.0, 0.7, 0.3, intensity * 0.8);
-                }
-            '''
-        )
-    
-    def setup_particles(self):
-        """Set up particle rendering."""
-        particles = self.particle_frames[0]
-        self.particles_vbo = self.ctx.buffer(particles.astype('f4').tobytes())
-        self.particles_vao = self.ctx.vertex_array(
-            self.particle_program,
-            [(self.particles_vbo, '3f', 'in_position')]
-        )
-    
-    def create_grid(self):
-        """Create a reference grid."""
-        # Simple cube as reference
-        vertices = np.array([
-            # Front face
-            -0.5, -0.5,  0.5, 0.0, 0.0, 1.0, 0.0, 0.0,  # Bottom-left
-             0.5, -0.5,  0.5, 0.0, 0.0, 1.0, 1.0, 0.0,  # Bottom-right
-             0.5,  0.5,  0.5, 0.0, 0.0, 1.0, 1.0, 1.0,  # Top-right
-            -0.5,  0.5,  0.5, 0.0, 0.0, 1.0, 0.0, 1.0,  # Top-left
+        # Render each frame
+        for frame_idx in range(frame_count):
+            # Get data for current frame
+            density_data = density_frames[frame_idx]
+            particles = particle_frames[frame_idx]
             
-            # Back face
-            -0.5, -0.5, -0.5, 0.0, 0.0, -1.0, 1.0, 0.0,  # Bottom-right
-             0.5, -0.5, -0.5, 0.0, 0.0, -1.0, 0.0, 0.0,  # Bottom-left
-             0.5,  0.5, -0.5, 0.0, 0.0, -1.0, 0.0, 1.0,  # Top-left
-            -0.5,  0.5, -0.5, 0.0, 0.0, -1.0, 1.0, 1.0,  # Top-right
+            # Create frame image
+            frame = self.render_frame(density_data, particles, grid_size, frame_idx)
             
-            # Left face
-            -0.5, -0.5, -0.5, -1.0, 0.0, 0.0, 0.0, 0.0,  # Bottom-left
-            -0.5, -0.5,  0.5, -1.0, 0.0, 0.0, 1.0, 0.0,  # Bottom-right
-            -0.5,  0.5,  0.5, -1.0, 0.0, 0.0, 1.0, 1.0,  # Top-right
-            -0.5,  0.5, -0.5, -1.0, 0.0, 0.0, 0.0, 1.0,  # Top-left
-            
-            # Right face
-             0.5, -0.5,  0.5, 1.0, 0.0, 0.0, 0.0, 0.0,  # Bottom-left
-             0.5, -0.5, -0.5, 1.0, 0.0, 0.0, 1.0, 0.0,  # Bottom-right
-             0.5,  0.5, -0.5, 1.0, 0.0, 0.0, 1.0, 1.0,  # Top-right
-             0.5,  0.5,  0.5, 1.0, 0.0, 0.0, 0.0, 1.0,  # Top-left
-            
-            # Bottom face
-            -0.5, -0.5, -0.5, 0.0, -1.0, 0.0, 0.0, 0.0,  # Bottom-left
-             0.5, -0.5, -0.5, 0.0, -1.0, 0.0, 1.0, 0.0,  # Bottom-right
-             0.5, -0.5,  0.5, 0.0, -1.0, 0.0, 1.0, 1.0,  # Top-right
-            -0.5, -0.5,  0.5, 0.0, -1.0, 0.0, 0.0, 1.0,  # Top-left
-            
-            # Top face
-            -0.5,  0.5,  0.5, 0.0, 1.0, 0.0, 0.0, 0.0,  # Bottom-left
-             0.5,  0.5,  0.5, 0.0, 1.0, 0.0, 1.0, 0.0,  # Bottom-right
-             0.5,  0.5, -0.5, 0.0, 1.0, 0.0, 1.0, 1.0,  # Top-right
-            -0.5,  0.5, -0.5, 0.0, 1.0, 0.0, 0.0, 1.0,  # Top-left
-        ], dtype='f4')
-        
-        indices = np.array([
-            0, 1, 2, 2, 3, 0,       # Front face
-            4, 5, 6, 6, 7, 4,       # Back face
-            8, 9, 10, 10, 11, 8,    # Left face
-            12, 13, 14, 14, 15, 12, # Right face
-            16, 17, 18, 18, 19, 16, # Bottom face
-            20, 21, 22, 22, 23, 20  # Top face
-        ], dtype='i4')
-        
-        self.grid_vbo = self.ctx.buffer(vertices)
-        self.grid_ibo = self.ctx.buffer(indices)
-        self.grid_vao = self.ctx.vertex_array(
-            self.volume_program,
-            [
-                (self.grid_vbo, '3f 3f 2f', 'in_position', 'in_normal', 'in_texcoord_0')
-            ],
-            self.grid_ibo
-        )
-    
-    def render(self):
-        """Render all frames of the simulation to video."""
-        print(f"Starting to render {self.frame_count} frames...")
-        
-        for frame in range(self.frame_count):
-            self.current_frame = frame
-            
-            # Clear the framebuffer
-            self.fbo.clear(0.05, 0.05, 0.05, 1.0)
-            
-            # Update density texture with current frame data
-            density_data = self.density_frames[frame]
-            self.density_texture.write(density_data.astype('f4').tobytes())
-            
-            # Update particle positions
-            particles = self.particle_frames[frame]
-            self.particles_vbo.write(particles.astype('f4').tobytes())
-            
-            # Fixed camera position looking at the center of the simulation
-            eye_pos = np.array([1.5, 1.5, 1.5], dtype='f4')
-            target = np.array([0.0, 0.0, 0.0], dtype='f4')
-            up = np.array([0.0, 1.0, 0.0], dtype='f4')
-            
-            # Build view matrix manually for fixed camera position
-            z_axis = eye_pos - target
-            z_axis = z_axis / np.linalg.norm(z_axis)
-            
-            x_axis = np.cross(up, z_axis)
-            x_axis = x_axis / np.linalg.norm(x_axis)
-            
-            y_axis = np.cross(z_axis, x_axis)
-            
-            view = np.array([
-                [x_axis[0], y_axis[0], z_axis[0], 0.0],
-                [x_axis[1], y_axis[1], z_axis[1], 0.0],
-                [x_axis[2], y_axis[2], z_axis[2], 0.0],
-                [-np.dot(x_axis, eye_pos), -np.dot(y_axis, eye_pos), -np.dot(z_axis, eye_pos), 1.0]
-            ], dtype='f4')
-            
-            # Model matrix (identity for now)
-            model = np.eye(4, dtype='f4')
-            
-            # Render the volume
-            self.volume_program['m_proj'].write(self.proj_matrix.tobytes())
-            self.volume_program['m_view'].write(view.tobytes())
-            self.volume_program['m_model'].write(model.tobytes())
-            self.volume_program['grid_size'].write(np.array(self.grid_size, dtype='f4').tobytes())
-            self.volume_program['eye_position'].write(eye_pos.tobytes())
-            
-            # Bind the density texture
-            self.density_texture.use(0)
-            self.volume_program['volume_texture'] = 0
-            
-            # Draw the cube for volume rendering
-            self.grid_vao.render()
-            
-            # Draw particles
-            self.particle_program['m_proj'].write(self.proj_matrix.tobytes())
-            self.particle_program['m_view'].write(view.tobytes())
-            self.particle_program['point_size'] = 10.0  # Adjust size as needed
-            
-            # Enable point sprites and draw particles
-            self.ctx.enable(moderngl.PROGRAM_POINT_SIZE)
-            self.particles_vao.render(moderngl.POINTS)
-            
-            # Capture frame for video
-            self.capture_frame()
+            # Save frame
+            frame_path = os.path.join(self.output_dir, f"frame_{frame_idx:04d}.png")
+            cv2.imwrite(frame_path, frame)
             
             # Print progress
-            if frame % 10 == 0:
-                print(f"Rendered frame {frame}/{self.frame_count}")
+            if frame_idx % 10 == 0 or frame_idx == frame_count - 1:
+                print(f"Rendered frame {frame_idx+1}/{frame_count}")
         
-        # Close video writer
-        if self.video_writer is not None:
-            self.video_writer.release()
-            print(f"Video saved to {self.output_video_path}")
+        print(f"All frames saved to {self.output_dir}/ directory")
+        return self.output_dir
+    
+    def render_frame(self, density_data, particles, grid_size, frame_idx):
+        """Create a 2D visualization of the 3D fluid simulation."""
+        # Create blank frame
+        frame = np.zeros((self.frame_size[1], self.frame_size[0], 3), dtype=np.uint8)
+        
+        # Fill with background color
+        frame[:] = (40, 40, 40)  # Dark gray background
+        
+        # Create a top-down view (slice through the middle of the z-axis)
+        z_slice = grid_size[2] // 2
+        slice_data = density_data[:, :, z_slice]
+        
+        # Create a front view (slice through the middle of the y-axis)
+        y_slice = grid_size[1] // 2
+        front_slice = density_data[:, y_slice, :]
+        
+        # Scale and position the visualizations
+        margin = 40
+        view_size = min((self.frame_size[0] - 3*margin) // 2, 
+                        (self.frame_size[1] - 2*margin))
+        
+        # Draw the top-down view
+        top_view_x = margin
+        top_view_y = (self.frame_size[1] - view_size) // 2
+        
+        # Scale and colorize the density data
+        top_view = self._colorize_density(slice_data, view_size)
+        frame[top_view_y:top_view_y+view_size, top_view_x:top_view_x+view_size] = top_view
+        
+        # Draw the front view
+        front_view_x = 2*margin + view_size
+        front_view_y = (self.frame_size[1] - view_size) // 2
+        
+        # Scale and colorize the front view
+        front_view = self._colorize_density(front_slice, view_size)
+        frame[front_view_y:front_view_y+view_size, front_view_x:front_view_x+view_size] = front_view
+        
+        # Draw particles
+        self._draw_particles(frame, particles, grid_size, 
+                            top_view_x, top_view_y, view_size,
+                            front_view_x, front_view_y)
+        
+        # Add frame text and border
+        cv2.putText(frame, f"Frame: {frame_idx}", (margin, margin), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        
+        cv2.putText(frame, "Top View", (top_view_x, top_view_y - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+        
+        cv2.putText(frame, "Front View", (front_view_x, front_view_y - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+        
+        # Draw borders around the views
+        cv2.rectangle(frame, 
+                     (top_view_x-1, top_view_y-1), 
+                     (top_view_x+view_size+1, top_view_y+view_size+1), 
+                     (100, 100, 100), 1)
+        
+        cv2.rectangle(frame, 
+                     (front_view_x-1, front_view_y-1), 
+                     (front_view_x+view_size+1, front_view_y+view_size+1), 
+                     (100, 100, 100), 1)
+        
+        return frame
+    
+    def _colorize_density(self, density_slice, view_size):
+        """Convert density data to a colorized image."""
+        # Normalize the density values
+        density_norm = np.clip(density_slice, 0, 1)
+        
+        # Resize to view size
+        density_resized = cv2.resize(density_norm, (view_size, view_size))
+        
+        # Create a colormap (blue gradient)
+        cmap = np.zeros((view_size, view_size, 3), dtype=np.uint8)
+        
+        # Set the blue channel based on density
+        cmap[:, :, 0] = (density_resized * 255).astype(np.uint8)  # Blue channel
+        
+        # Add some color variation
+        cmap[:, :, 1] = (density_resized * 128).astype(np.uint8)  # Green channel
+        
+        return cmap
+    
+    def _draw_particles(self, frame, particles, grid_size, 
+                       top_x, top_y, view_size,
+                       front_x, front_y):
+        """Draw particles on both views."""
+        # Draw each particle
+        for p in particles:
+            # Normalize particle position to [0,1]
+            px, py, pz = p[0], p[1], p[2]
             
-        print("Rendering completed!")
-        
-    def capture_frame(self):
-        """Capture the current frame for video output."""
-        # Read pixels from framebuffer
-        pixels = self.fbo.read(components=4, attachment=0)
-        img = np.frombuffer(pixels, dtype=np.uint8).reshape(self.window_size[1], self.window_size[0], 4)
-        
-        # Convert RGBA to BGR for OpenCV
-        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-        
-        # Flip the image vertically (OpenGL vs OpenCV coordinates)
-        img = cv2.flip(img, 0)
-        
-        # Write frame to video file
-        if self.video_writer is not None:
-            self.video_writer.write(img)
-        
-        # Save individual frame if desired
-        # cv2.imwrite(f"frames/frame_{self.current_frame:04d}.png", img)
+            # Calculate positions in top view (x, z coordinates)
+            top_px = int(top_x + px * view_size)
+            top_py = int(top_y + pz * view_size)
+            
+            # Calculate positions in front view (x, y coordinates)
+            front_px = int(front_x + px * view_size)
+            front_py = int(front_y + (1-py) * view_size)  # Invert y for display
+            
+            # Draw particles
+            cv2.circle(frame, (top_px, top_py), 2, (255, 180, 0), -1)  # Yellow dot
+            cv2.circle(frame, (front_px, front_py), 2, (255, 180, 0), -1)  # Yellow dot
 
-def run_fluid_renderer(grid_size=(128, 128, 128), particles_count=1000, 
-                      simulation_time=5.0, save_interval=3.0,
-                      output_video_path="fluid_simulation.mp4"):
-    """Run the headless fluid renderer."""
-    renderer = FluidRenderer(
-        window_size=(1920, 1080),
+def run_frames_renderer(grid_size=(128, 128, 128), particles_count=1000, 
+                       simulation_time=5.0, save_interval=3.0,
+                       output_dir="frames"):
+    """Run the frame-by-frame renderer."""
+    renderer = FramesRenderer(
+        output_dir=output_dir,
         grid_size=grid_size,
         particles_count=particles_count,
         simulation_time=simulation_time,
-        save_interval=save_interval,
-        output_video_path=output_video_path
+        save_interval=save_interval
     )
     
-    # Render all frames
-    renderer.render()
-    
-    return output_video_path
-        
+    return renderer.run_simulation_and_render()
+
 if __name__ == "__main__":
     # Direct test run
-    run_fluid_renderer()
+    run_frames_renderer()

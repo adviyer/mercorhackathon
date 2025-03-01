@@ -68,8 +68,8 @@ def setup_environment():
         print("Warning: nvidia-smi not available or no NVIDIA GPU found.")
 
 def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0, 
-                  save_interval=3.0, output_file="fluid_simulation.mp4"):
-    """Run the full fluid simulation and rendering pipeline."""
+                  save_interval=3.0, output_dir="frames"):
+    """Run the fluid simulation and render frames to a directory."""
     import traceback
     from fluid_physics import FluidSimulation
     
@@ -77,50 +77,24 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
     print(f"  - Grid size: {grid_size}")
     print(f"  - Particles: {particles}")
     print(f"  - Duration: {duration} seconds")
-    print(f"  - Output: {output_file}")
+    print(f"  - Output directory: {output_dir}")
     
-    # Try to use the OpenGL renderer first
+    # Use the simple frame renderer (no display or OpenGL required)
     try:
-        # Check if we have a display available
-        import subprocess
-        try:
-            subprocess.check_output("xdpyinfo", stderr=subprocess.STDOUT, shell=True)
-            has_display = True
-        except (subprocess.SubprocessError, FileNotFoundError):
-            has_display = False
-            print("No display detected. Will use simple renderer.")
-        
-        # Only try OpenGL renderer if we have a display
-        if has_display:
-            print("Display available. Attempting to use OpenGL renderer...")
-            from fluid_renderer import run_fluid_renderer
-            
-            output_path = run_fluid_renderer(
-                grid_size=grid_size,
-                particles_count=particles,
-                simulation_time=duration,
-                save_interval=save_interval,
-                output_video_path=output_file
-            )
-        else:
-            # Force using the simple renderer
-            raise ImportError("No display available")
-            
-    except Exception as e:
-        print(f"OpenGL renderer failed: {e}")
-        print(f"Exception details:\n{traceback.format_exc()}")
-        print("Using simple renderer instead...")
-        
-        from simple_renderer import run_simple_renderer
-        output_path = run_simple_renderer(
+        from frames_renderer import run_frames_renderer
+        output_path = run_frames_renderer(
             grid_size=grid_size,
             particles_count=particles,
             simulation_time=duration,
             save_interval=save_interval,
-            output_video_path=output_file
+            output_dir=output_dir
         )
+    except Exception as e:
+        print(f"Frame renderer failed: {e}")
+        print(f"Exception details:\n{traceback.format_exc()}")
+        raise
     
-    print(f"Simulation completed. Output video saved to: {output_path}")
+    print(f"Simulation completed. Output frames saved to: {output_path}")
     print(f"Particle position data saved to: simulation_data/")
 
 def parse_args():
@@ -134,8 +108,8 @@ def parse_args():
                         help='Simulation duration in seconds')
     parser.add_argument('--save-interval', type=float, default=3.0, 
                         help='Interval to save particle positions')
-    parser.add_argument('--output', type=str, default="fluid_simulation.mp4", 
-                        help='Output video file path')
+    parser.add_argument('--output-dir', type=str, default="frames", 
+                        help='Output directory for frames')
     
     return parser.parse_args()
 
@@ -154,7 +128,7 @@ if __name__ == "__main__":
             particles=args.particles,
             duration=args.duration,
             save_interval=args.save_interval,
-            output_file=args.output
+            output_dir=args.output_dir
         )
     except Exception as e:
         import traceback
@@ -169,7 +143,7 @@ if __name__ == "__main__":
                 particles=500,
                 duration=3.0,
                 save_interval=3.0,
-                output_file=args.output
+                output_dir=args.output_dir
             )
         except Exception as e2:
             print(f"Second attempt also failed: {e2}")

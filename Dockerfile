@@ -6,7 +6,6 @@ LABEL description="3D Fluid Simulation for H100 GPUs on Northflank"
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:99
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -32,7 +31,7 @@ WORKDIR /app
 
 # Copy simulation files
 COPY fluid_physics.py /app/
-COPY simple_renderer.py /app/
+COPY frames_renderer.py /app/
 COPY run_simulation.py /app/
 
 # Create directories for output
@@ -40,4 +39,4 @@ RUN mkdir -p /app/simulation_data /app/frames
 
 # Default command to run the simulation
 ENTRYPOINT ["python3", "run_simulation.py"]
-CMD ["--grid", "128", "--particles", "1000", "--duration", "5.0", "--save-interval", "3.0", "--output", "/app/fluid_simulation.mp4"]
+CMD ["--grid", "128", "--particles", "1000", "--duration", "5.0", "--save-interval", "3.0", "--output-dir", "/app/frames"]
