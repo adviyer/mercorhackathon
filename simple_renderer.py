@@ -1,6 +1,6 @@
 """
-A simplified renderer for the fluid simulation that doesn't rely on ModernGL.
-This is a fallback option if there are issues with OpenGL on the server.
+A simplified renderer for the fluid simulation that doesn't rely on OpenGL.
+This is a fallback option for headless environments like Northflank.
 """
 
 import numpy as np
@@ -33,18 +33,38 @@ class SimpleRenderer:
             save_interval=save_interval
         )
         
-        # Set up video writer
-        self.fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.video_writer = cv2.VideoWriter(
-            self.output_video_path,
-            self.fourcc,
-            self.fps,
-            self.video_size
-        )
-        
-        # Make sure output directories exist
+        # Make sure output directory exists
         os.makedirs(os.path.dirname(os.path.abspath(output_video_path)) or ".", exist_ok=True)
         
+        # Set up video writer
+        self.fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        try:
+            self.video_writer = cv2.VideoWriter(
+                self.output_video_path,
+                self.fourcc,
+                self.fps,
+                self.video_size
+            )
+            
+            if not self.video_writer.isOpened():
+                print(f"Warning: Could not open video writer for {output_video_path}")
+                print("Trying alternative codec...")
+                # Try with a different codec
+                self.fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                self.video_writer = cv2.VideoWriter(
+                    self.output_video_path,
+                    self.fourcc,
+                    self.fps,
+                    self.video_size
+                )
+        except Exception as e:
+            print(f"Warning: Failed to create video writer: {e}")
+            print("Will attempt to save individual frames instead.")
+            self.video_writer = None
+            
+        # Create frames directory in case we need it
+        os.makedirs("frames", exist_ok=True)
+    
     def run_simulation_and_render(self):
         """Run the physics simulation and render the result."""
         print("Running physics simulation...")
@@ -68,15 +88,23 @@ class SimpleRenderer:
             frame = self.render_frame(density_data, particles, grid_size, frame_idx)
             
             # Write to video
-            self.video_writer.write(frame)
+            if self.video_writer is not None and self.video_writer.isOpened():
+                self.video_writer.write(frame)
+            
+            # Always save individual frames as backup
+            if frame_idx % 5 == 0:  # Save every 5th frame to avoid too many files
+                cv2.imwrite(f"frames/frame_{frame_idx:04d}.png", frame)
             
             # Print progress
             if frame_idx % 10 == 0:
                 print(f"Rendered frame {frame_idx}/{frame_count}")
         
         # Clean up
-        self.video_writer.release()
-        print(f"Video saved to {self.output_video_path}")
+        if self.video_writer is not None:
+            self.video_writer.release()
+            print(f"Video saved to {self.output_video_path}")
+        else:
+            print(f"Individual frames saved to frames/ directory")
         
         return self.output_video_path
     

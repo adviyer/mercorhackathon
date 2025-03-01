@@ -6,6 +6,7 @@ LABEL description="3D Fluid Simulation for H100 GPUs on Northflank"
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+ENV DISPLAY=:99
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,12 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     libgl1-mesa-dev \
     libglu1-mesa-dev \
-    libxrandr-dev \
-    libxinerama-dev \
-    libxcursor-dev \
-    libxi-dev \
     libegl1 \
-    xvfb \
     ffmpeg \
     wget \
     git \
@@ -29,14 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Upgrade pip and install Python dependencies
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip3 install --no-cache-dir numpy taichi opencv-python-headless moderngl
+RUN pip3 install --no-cache-dir numpy taichi opencv-python-headless
 
 # Set up working directory
 WORKDIR /app
 
 # Copy simulation files
 COPY fluid_physics.py /app/
-COPY fluid_renderer.py /app/
+COPY simple_renderer.py /app/
 COPY run_simulation.py /app/
 
 # Create directories for output

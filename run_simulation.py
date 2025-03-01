@@ -13,6 +13,7 @@ import sys
 import time
 import subprocess
 import argparse
+import traceback
 
 def setup_environment():
     """Set up the environment for GPU simulation on Northflank."""
@@ -26,16 +27,6 @@ def setup_environment():
         print("Installing Taichi...")
         subprocess.check_call([
             "pip", "install", "--no-cache-dir", "taichi"
-        ])
-    
-    # Check OpenGL/ModernGL
-    try:
-        import moderngl
-        print(f"ModernGL version: {moderngl.__version__}")
-    except ImportError:
-        print("Installing ModernGL...")
-        subprocess.check_call([
-            "pip", "install", "--no-cache-dir", "moderngl"
         ])
     
     # Check OpenCV
@@ -79,8 +70,8 @@ def setup_environment():
 def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0, 
                   save_interval=3.0, output_file="fluid_simulation.mp4"):
     """Run the full fluid simulation and rendering pipeline."""
+    import traceback
     from fluid_physics import FluidSimulation
-    from fluid_renderer import run_fluid_renderer
     
     print(f"Starting 3D fluid simulation with:")
     print(f"  - Grid size: {grid_size}")
@@ -88,14 +79,46 @@ def run_simulation(grid_size=(128, 128, 128), particles=1000, duration=5.0,
     print(f"  - Duration: {duration} seconds")
     print(f"  - Output: {output_file}")
     
-    # Run the fluid renderer
-    output_path = run_fluid_renderer(
-        grid_size=grid_size,
-        particles_count=particles,
-        simulation_time=duration,
-        save_interval=save_interval,
-        output_video_path=output_file
-    )
+    # Try to use the OpenGL renderer first
+    try:
+        # Check if we have a display available
+        import subprocess
+        try:
+            subprocess.check_output("xdpyinfo", stderr=subprocess.STDOUT, shell=True)
+            has_display = True
+        except (subprocess.SubprocessError, FileNotFoundError):
+            has_display = False
+            print("No display detected. Will use simple renderer.")
+        
+        # Only try OpenGL renderer if we have a display
+        if has_display:
+            print("Display available. Attempting to use OpenGL renderer...")
+            from fluid_renderer import run_fluid_renderer
+            
+            output_path = run_fluid_renderer(
+                grid_size=grid_size,
+                particles_count=particles,
+                simulation_time=duration,
+                save_interval=save_interval,
+                output_video_path=output_file
+            )
+        else:
+            # Force using the simple renderer
+            raise ImportError("No display available")
+            
+    except Exception as e:
+        print(f"OpenGL renderer failed: {e}")
+        print(f"Exception details:\n{traceback.format_exc()}")
+        print("Using simple renderer instead...")
+        
+        from simple_renderer import run_simple_renderer
+        output_path = run_simple_renderer(
+            grid_size=grid_size,
+            particles_count=particles,
+            simulation_time=duration,
+            save_interval=save_interval,
+            output_video_path=output_file
+        )
     
     print(f"Simulation completed. Output video saved to: {output_path}")
     print(f"Particle position data saved to: simulation_data/")
@@ -125,10 +148,29 @@ if __name__ == "__main__":
     
     # Run simulation with parsed arguments
     grid_size = (args.grid, args.grid, args.grid)
-    run_simulation(
-        grid_size=grid_size, 
-        particles=args.particles,
-        duration=args.duration,
-        save_interval=args.save_interval,
-        output_file=args.output
-    )
+    try:
+        run_simulation(
+            grid_size=grid_size, 
+            particles=args.particles,
+            duration=args.duration,
+            save_interval=args.save_interval,
+            output_file=args.output
+        )
+    except Exception as e:
+        import traceback
+        print(f"Fatal error: {e}")
+        print(traceback.format_exc())
+        print("Attempting to run with smallest possible grid size...")
+        
+        try:
+            # Try one more time with minimal settings
+            run_simulation(
+                grid_size=(64, 64, 64),
+                particles=500,
+                duration=3.0,
+                save_interval=3.0,
+                output_file=args.output
+            )
+        except Exception as e2:
+            print(f"Second attempt also failed: {e2}")
+            print("Please check the logs for details.")
