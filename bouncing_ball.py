@@ -2,8 +2,20 @@ import pygame
 import sys
 import os
 
-# Initialize Pygame
-pygame.init()
+# Set SDL to use the dummy driver for headless environments
+os.environ["SDL_VIDEODRIVER"] = "x11"
+
+# Print debug info
+print("Starting pygame application...")
+print(f"Display environment: {os.environ.get('DISPLAY', 'Not set')}")
+
+try:
+    # Initialize Pygame
+    pygame.init()
+    print("Pygame initialized successfully")
+except Exception as e:
+    print(f"ERROR initializing Pygame: {e}")
+    sys.exit(1)
 
 # Set up display
 WIDTH, HEIGHT = 800, 600
