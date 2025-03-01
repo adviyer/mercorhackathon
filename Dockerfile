@@ -1,51 +1,45 @@
-# Dockerfile for WebGPU-Ocean on Northflank with H100 GPUs
-
-# Start with NVIDIA CUDA runtime image instead of devel (smaller)
 FROM nvidia/cuda:12.0.1-runtime-ubuntu22.04
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV NODE_VERSION=18.x
-ENV PYTHONUNBUFFERED=1
+# Set up working directory
+WORKDIR /app
 
-# Install system dependencies - consolidate and clean in one step
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-minimal \
+# Install Python and required packages
+RUN apt-get update && apt-get install -y \
+    python3 \
     python3-pip \
     python3-dev \
+    build-essential \
+    nvcc \
     git \
     curl \
     wget \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js and clean up in same layer
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && npm install -g npm \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Create directories for simulation, results, and versions
+RUN mkdir -p /app/fluid_simulation /app/optimization_results /app/optimization_results/versions /app/logs
 
-# Create app directory
-WORKDIR /app
-
-# Copy only package files first (better layer caching)
-COPY package*.json ./
-RUN npm install --production && npm cache clean --force
+# Create requirements.txt file
+RUN echo "fastapi>=0.95.0\nuvicorn>=0.21.0\nhttpx>=0.24.0\npydantic>=1.10.7" > /app/requirements.txt
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt && \
-    rm -rf ~/.cache/pip
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY optimization_orchestrator.py /app/
 
-# Expose port
+# Expose the service port (3000 for Northflank)
 EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Set environment variables (these will be overridden at runtime via Northflank)
+ENV CODE_GENERATOR_URL="http://code-generator-service:3000" \
+    EVALUATOR_URL="http://evaluator-service:3000" \
+    SIMULATION_DIR="/app/fluid_simulation" \
+    RESULTS_DIR="/app/optimization_results" \
+    MAX_ITERATIONS=10 \
+    PERFORMANCE_THRESHOLD=1.05
+
+# Create volume mount points for persistent data
+VOLUME ["/app/fluid_simulation", "/app/optimization_results"]
+
+# Run the service
+CMD ["uvicorn", "optimization_orchestrator:app", "--host", "0.0.0.0", "--port", "3000"]
