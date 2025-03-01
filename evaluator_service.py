@@ -22,7 +22,7 @@ logger = logging.getLogger("evaluator")
 app = FastAPI(title="Performance Evaluator Service")
 
 # Configuration
-DEEPSEEK_API_URL = os.environ.get("DEEPSEEK_API_URL", "http://localhost:8080/v1/chat/completions")
+DEEPSEEK_API_URL = os.environ.get("DEEPSEEK_API_URL", "https://p01--deepseek-ollama--8bsw8fx29k5g.code.run/v1/chat/completions")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))
 TIMEOUT_SECONDS = int(os.environ.get("TIMEOUT_SECONDS", "120"))
